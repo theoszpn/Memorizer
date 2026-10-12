@@ -1,0 +1,1183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MEMORIZE</title>
+<style>
+/* ============================================================
+   DESIGN TOKENS
+   One light theme. Every colour lives here.
+   ============================================================ */
+:root {
+  color-scheme: light;
+
+  --paper:      #ececef;  /* page ground */
+  --card:       #ffffff;  /* the script surface and the control panels */
+  --ink:        #1b1b20;
+  --ink-soft:   #5c5c67;
+  --ink-faint:  #8b8b96;
+  --rule:       #d8d8de;
+  --slot:       #d9d8e1;  /* the gap a hidden word leaves behind */
+  --slot-hover: #c5c3d4;
+  --slot-inset: rgba(27, 27, 32, .14);
+  --accent:     #4b3fbf;
+  --accent-hi:  #3a2fa6;
+  --accent-on:  #ffffff;
+  --accent-ring: rgba(75, 63, 191, .40);
+  --accent-wash: rgba(75, 63, 191, .16);
+  --lift:       0 1px 2px rgba(27,27,32,.06), 0 10px 26px -18px rgba(27,27,32,.30);
+
+  --sans:  Arial, Helvetica, "Helvetica Neue", sans-serif;
+  --black: "Arial Black", "Arial Bold", Arial, Helvetica, sans-serif;
+
+  --script-size: 14px;    /* the reading text */
+  --measure: 70ch;
+  --dur-hide: 260ms;
+  --dur-show: 200ms;
+}
+
+/* ============================================================
+   BASE
+   ============================================================ */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button, input { font-family: inherit; font-size: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+[hidden] { display: none !important; }
+
+/* ============================================================
+   LAYOUT — text on the left, every control in the right rail
+   ============================================================ */
+.app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 272px;
+  gap: 26px;
+  align-items: start;
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 22px 24px 32px;
+}
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding-bottom: 14px;
+}
+.masthead h1 {
+  margin: 0;
+  font-family: var(--black);
+  font-weight: 900;
+  font-size: 1.5rem;
+  letter-spacing: .015em;
+}
+.masthead p {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: .8125rem;
+}
+
+/* ============================================================
+   THE SCRIPT
+   ============================================================ */
+.sheet {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  box-shadow: var(--lift);
+  padding: 26px 28px;
+  min-height: calc(100vh - 110px);
+}
+
+.editor {
+  display: block;
+  width: 100%;
+  min-height: calc(100vh - 200px);
+  resize: vertical;
+  border: 0;
+  padding: 0;
+  background: none;
+  font-size: var(--script-size);
+  line-height: 1.8;
+  max-width: var(--measure);
+}
+.editor:focus { outline: none; }
+.editor::placeholder { color: var(--ink-faint); }
+
+.script {
+  font-size: var(--script-size);
+  line-height: 1.85;
+  max-width: var(--measure);
+  white-space: pre-wrap;    /* keeps the author's line and paragraph breaks */
+  overflow-wrap: break-word;
+}
+
+/* A word plus its own punctuation must never split across two lines,
+   or a stray comma ends up starting the next line. */
+.tok { white-space: nowrap; }
+
+/* --- one word -------------------------------------------------------
+   The real text always stays in the DOM, so a censored word keeps the
+   exact width of the word it replaces: nothing to measure, nothing to
+   re-layout. Hiding and revealing are only class toggles.
+   -------------------------------------------------------------------- */
+.w {
+  display: inline-block;
+  border-radius: 3px;
+  /* An inline-block is as tall as its line box, so without this it would
+     inherit the paragraph's 1.85 line-height and the gap would be twice the
+     height of the text. This keeps the box just taller than the letters.
+     The negative margin cancels the padding, so hiding a word never moves
+     the layout. */
+  line-height: 1.12;
+  padding: .07em .08em;
+  margin: 0 -.08em;
+  color: var(--ink);
+  background: transparent;
+  transition:
+    color var(--dur-show) ease,
+    background-color var(--dur-show) ease;
+}
+.w.hidden {
+  cursor: pointer;
+  color: transparent;
+  background: var(--slot);
+  box-shadow: inset 0 1px 1px var(--slot-inset);
+  -webkit-user-select: none; user-select: none;
+  transition:
+    color var(--dur-hide) ease,
+    background-color var(--dur-hide) ease;
+}
+.w.hidden:hover {
+  background: var(--slot-hover);
+  box-shadow: inset 0 1px 1px var(--slot-inset), 0 0 0 1px var(--accent-ring);
+}
+/* Newly hidden at this level: tinted with the accent, settling to the neutral
+   slot colour on its own, so you can see what just changed. */
+.w.hidden.fresh { background: var(--accent-wash); }
+
+@keyframes word-pop {
+  0%   { transform: scale(.92); background: var(--accent-wash); box-shadow: 0 0 0 2px var(--accent-ring); }
+  55%  { transform: scale(1.03); }
+  100% { transform: scale(1); background: transparent; box-shadow: 0 0 0 6px transparent; }
+}
+.w.revealing { animation: word-pop 340ms cubic-bezier(.2,.9,.3,1) both; }
+
+.sheet-hint {
+  margin: 22px 0 0;
+  font-size: .75rem;
+  color: var(--ink-faint);
+}
+
+/* ============================================================
+   RIGHT RAIL — every control lives here
+   ============================================================ */
+.rail {
+  position: sticky;
+  top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  box-shadow: var(--lift);
+  padding: 14px 15px;
+}
+
+.panel-title {
+  margin: 0 0 10px;
+  font-size: .75rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+/* --- level panel --- */
+.level-head { display: flex; align-items: baseline; gap: 8px; }
+.level-num {
+  font-family: var(--black);
+  font-weight: 900;
+  font-size: 2.125rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.level-word { font-size: .75rem; color: var(--ink-soft); }
+.level-idle {
+  margin: 0;
+  font-family: var(--black);
+  font-weight: 900;
+  font-size: 1.125rem;
+  color: var(--ink-faint);
+}
+.progress {
+  height: 4px;
+  margin-top: 12px;
+  border-radius: 2px;
+  background: var(--rule);
+  overflow: hidden;
+}
+.progress span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 420ms cubic-bezier(.2,.75,.25,1);
+}
+.level-counts {
+  margin: 9px 0 0;
+  font-size: .75rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.level-counts b { color: var(--ink); }
+.strip-note {
+  margin: 7px 0 0;
+  font-size: .75rem;
+  color: var(--ink-faint);
+}
+.strip-note:empty { display: none; }
+.strip-note.is-final { color: var(--accent); font-weight: 700; }
+
+/* --- how much to hide --- */
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  padding: 3px;
+  background: var(--paper);
+  border-radius: 7px;
+  margin-bottom: 12px;
+}
+.segmented button {
+  border: 0;
+  background: none;
+  border-radius: 5px;
+  padding: 6px 4px;
+  font-size: .75rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background-color 140ms, color 140ms;
+}
+.segmented button:hover { color: var(--ink); }
+.segmented button[aria-pressed="true"] {
+  background: var(--card);
+  color: var(--ink);
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(27,27,32,.12);
+}
+
+.field-read {
+  margin: 9px 0 0;
+  font-size: .75rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.field-read b { color: var(--ink); font-size: .8125rem; }
+
+.slider {
+  -webkit-appearance: none; appearance: none;
+  width: 100%;
+  height: 18px;
+  background: none;
+  cursor: pointer;
+  display: block;
+}
+.slider::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 2px;
+  background: linear-gradient(to right, var(--accent) var(--fill, 39%), var(--rule) var(--fill, 39%));
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 15px; height: 15px; margin-top: -5.5px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 2px solid var(--accent);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+.slider:hover::-webkit-slider-thumb { transform: scale(1.18); }
+.slider:active::-webkit-slider-thumb { transform: scale(1.3); box-shadow: 0 0 0 5px var(--accent-wash); }
+.slider::-moz-range-track { height: 4px; border-radius: 2px; background: var(--rule); }
+.slider::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+.slider::-moz-range-thumb {
+  width: 13px; height: 13px; border: 2px solid var(--accent); border-radius: 50%;
+  background: var(--card); transition: transform 150ms ease;
+}
+.slider:hover::-moz-range-thumb { transform: scale(1.18); }
+
+.stepper { display: flex; gap: 6px; }
+.stepper button {
+  flex: none;
+  width: 30px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: .9375rem;
+  line-height: 1;
+  color: var(--ink-soft);
+  transition: background-color 140ms, border-color 140ms, color 140ms, opacity 140ms;
+}
+.stepper button:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-faint); }
+.stepper button:disabled { opacity: .45; cursor: not-allowed; }
+.number {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper);
+  padding: 6px 8px;
+  text-align: center;
+  font-size: .875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.number:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* --- actions --- */
+.actions { display: flex; flex-direction: column; gap: 8px; }
+
+.btn {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: .8125rem;
+  transition: background-color 150ms, border-color 150ms, color 150ms,
+              transform 120ms, box-shadow 150ms, opacity 150ms;
+}
+.btn:hover:not(:disabled) { border-color: var(--ink-faint); transform: translateY(-1px); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-on);
+  font-size: .9375rem;
+  font-weight: 700;
+  padding: 15px 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.12);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hi);
+  border-color: var(--accent-hi);
+  box-shadow: 0 8px 18px -10px var(--accent-ring);
+}
+
+.btn-quiet { background: none; border-color: transparent; color: var(--ink-soft); }
+.btn-quiet:hover:not(:disabled) { color: var(--ink); background: var(--paper); border-color: var(--rule); }
+
+.btn:disabled {
+  cursor: not-allowed;
+  background: transparent;
+  border-color: var(--rule);
+  color: var(--ink-faint);
+  box-shadow: none;
+  opacity: .6;
+}
+
+/* inline confirmation, in place of window.confirm */
+.confirm {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 11px;
+  animation: confirm-in 170ms cubic-bezier(.2,.8,.3,1) both;
+}
+@keyframes confirm-in { from { opacity: 0; transform: translateY(-4px); } }
+.confirm p { margin: 0 0 9px; font-size: .75rem; color: var(--ink-soft); line-height: 1.45; }
+.confirm-actions { display: flex; gap: 6px; }
+.confirm .btn { flex: 1; padding: 7px 6px; font-size: .75rem; background: var(--card); }
+.confirm .btn-danger { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
+.confirm .btn-danger:hover:not(:disabled) { background: var(--accent-hi); border-color: var(--accent-hi); }
+
+.rail-hint { margin: 0; padding: 0 2px; font-size: .6875rem; color: var(--ink-faint); }
+
+/* ============================================================
+   NARROW SCREENS — the rail drops under the text and sticks to the bottom
+   ============================================================ */
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 16px 14px 20px; }
+  .sheet { min-height: 0; padding: 18px 16px; }
+  .editor { min-height: 45vh; }
+  .rail {
+    position: sticky;
+    top: auto;
+    bottom: 10px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+  .rail > .panel { flex: 1 1 210px; }
+  .actions { flex-direction: row; flex-wrap: wrap; align-items: stretch; }
+  .actions .btn { flex: 1; }
+  /* Must come after the rule above: same specificity, so order decides. */
+  .actions .btn-primary { flex: 1 0 100%; order: -1; }
+  .confirm { flex: 1 0 100%; }
+  .rail-hint { display: none; }
+}
+
+/* ============================================================
+   REDUCED MOTION — keep the state changes, drop the movement
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+  }
+  .btn:hover:not(:disabled) { transform: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <div class="main">
+    <header class="masthead">
+      <h1>MEMORIZE</h1>
+      <p>Read it out loud, then hide a little more.</p>
+    </header>
+
+    <main class="sheet">
+      <textarea class="editor" id="editor" spellcheck="false" aria-label="Text to memorize"
+        placeholder="Paste the text you want to memorize here…"></textarea>
+      <div class="script" id="script" hidden></div>
+      <p class="sheet-hint" id="sheet-hint" hidden>Click a hidden word to read it. It stays visible until the next level.</p>
+    </main>
+  </div>
+
+  <aside class="rail">
+
+    <section class="panel" aria-live="polite">
+      <div class="level-head" id="level-head" hidden>
+        <span class="level-num" id="level-num">0</span>
+        <span class="level-word">Level</span>
+      </div>
+      <p class="level-idle" id="level-idle">NOT STARTED</p>
+      <div class="progress"><span id="progress-fill"></span></div>
+      <p class="level-counts" id="level-counts" hidden></p>
+      <p class="strip-note" id="strip-note"></p>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-title">Hide per level</h2>
+
+      <div class="segmented">
+        <button type="button" id="mode-percent" aria-pressed="true">Percent</button>
+        <button type="button" id="mode-count" aria-pressed="false">Words</button>
+      </div>
+
+      <div id="percent-field">
+        <input class="slider" id="percent" type="range" min="1" max="50" step="1" value="20"
+               aria-label="Percent of the text to hide each level" aria-describedby="percent-read">
+        <p class="field-read" id="percent-read"></p>
+      </div>
+
+      <div id="count-field" hidden>
+        <div class="stepper">
+          <button type="button" id="count-down" aria-label="One word fewer">&minus;</button>
+          <input class="number" id="count" type="number" min="1" step="1" value="5"
+                 aria-label="Words to hide each level" aria-describedby="count-read">
+          <button type="button" id="count-up" aria-label="One word more">+</button>
+        </div>
+        <p class="field-read" id="count-read"></p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="actions" id="row-edit">
+        <button class="btn btn-primary" id="start-btn" type="button" disabled>Start</button>
+        <button class="btn btn-quiet" id="clear-btn" type="button">Clear text</button>
+      </div>
+
+      <div class="actions" id="row-practice" hidden>
+        <button class="btn btn-primary" id="next-btn" type="button">Next level</button>
+        <button class="btn" id="prev-btn" type="button">Previous level</button>
+        <button class="btn btn-quiet" id="edit-btn" type="button" aria-expanded="false">Edit text</button>
+        <div class="confirm" id="confirm" hidden role="group" aria-label="Go back to editing">
+          <p>Editing the text clears every level you have played. The text itself is kept.</p>
+          <div class="confirm-actions">
+            <button class="btn" id="confirm-no" type="button">Keep practicing</button>
+            <button class="btn btn-danger" id="confirm-yes" type="button">Edit text</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p class="rail-hint" id="rail-hint" hidden>Arrow keys move between levels.</p>
+
+  </aside>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+/* ==========================================================================
+   1. STATE
+   One plain object holds everything the app knows. Rendering reads from it,
+   events write to it. Nothing else keeps a second copy of the truth.
+   ========================================================================== */
+
+var state = {
+  mode: 'edit',          // 'edit' | 'practice'
+  text: '',              // the frozen text of the current session
+  tokens: [],            // every chunk of the text, in order (see tokenize)
+  wordCount: 0,          // N, the number of hideable words
+  level: 0,              // 0 = nothing hidden
+  hidden: new Set(),     // word indexes censored at this level (cumulative)
+  revealed: new Set(),   // words peeked at during this level only
+  history: [[]],         // history[L] = the hidden set at level L, as an array
+  hideMode: 'percent',   // 'percent' = a share of the text, 'count' = a fixed number
+  percent: 20,           // used when hideMode is 'percent'
+  count: 5               // used when hideMode is 'count'
+};
+
+var wordEls = [];           // wordEls[i] is the DOM element for word i
+var freshEls = [];          // elements currently wearing the "just hidden" tint
+var freshTimer = 0;
+var delayTimer = 0;
+var saveTimer = 0;
+
+var HIDDEN_LABEL = 'Hidden word, press to reveal';
+var STORAGE_KEY = 'gap-memorizer-v1';
+var MAX_STAGGER = 320;      // ms spread across the whole hide ripple
+
+/* ==========================================================================
+   2. ELEMENTS
+   ========================================================================== */
+
+var el = {};
+['level-head','level-num','level-counts','level-idle','progress-fill','strip-note',
+ 'editor','script','sheet-hint','mode-percent','mode-count','percent-field','percent',
+ 'percent-read','count-field','count','count-read','count-up','count-down','row-edit',
+ 'clear-btn','start-btn','row-practice','prev-btn','next-btn','edit-btn','confirm',
+ 'confirm-no','confirm-yes','rail-hint'].forEach(function (id) {
+  // 'level-num' becomes el.levelNum, and so on.
+  el[id.replace(/-(\w)/g, function (m, c) { return c.toUpperCase(); })] = document.getElementById(id);
+});
+
+function reducedMotion() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/* ==========================================================================
+   3. TOKENIZING
+   The text is split into three kinds of token:
+     space  - a run of whitespace, kept verbatim so line breaks survive
+     punct  - a chunk with no letter or digit in it, never hidden
+     word   - lead punctuation + core + trailing punctuation; only the core
+              is censored, so "Hello," hides to a gap followed by a comma
+   Apostrophes and hyphens inside a word stay part of the core, so don't and
+   well-known hide as one piece. \p{L} and \p{N} make this work for accented
+   letters too.
+   ========================================================================== */
+
+var LEAD_RE  = /^[^\p{L}\p{N}]*/u;
+var TRAIL_RE = /[^\p{L}\p{N}]*$/u;
+var HAS_CORE = /[\p{L}\p{N}]/u;
+
+function tokenize(text) {
+  var tokens = [];
+  var wordCount = 0;
+
+  // split(/(\s+)/) keeps the separators, so whitespace is never lost
+  text.split(/(\s+)/).forEach(function (chunk) {
+    if (chunk === '') return;
+
+    if (/^\s+$/.test(chunk)) {
+      tokens.push({ type: 'space', raw: chunk });
+      return;
+    }
+    if (!HAS_CORE.test(chunk)) {
+      tokens.push({ type: 'punct', raw: chunk });   // e.g. a lone dash
+      return;
+    }
+
+    var lead = chunk.match(LEAD_RE)[0];
+    var rest = chunk.slice(lead.length);
+    var trail = rest.match(TRAIL_RE)[0];
+    var core = trail ? rest.slice(0, rest.length - trail.length) : rest;
+
+    tokens.push({ type: 'word', lead: lead, core: core, trail: trail, index: wordCount });
+    wordCount++;
+  });
+
+  return { tokens: tokens, wordCount: wordCount };
+}
+
+/** Fast word count for the live counter in edit mode. */
+function countWords(text) {
+  var n = 0;
+  var parts = text.split(/\s+/);
+  for (var i = 0; i < parts.length; i++) {
+    if (parts[i] && HAS_CORE.test(parts[i])) n++;
+  }
+  return n;
+}
+
+/* ==========================================================================
+   4. RENDERING THE SCRIPT
+   Built once per session as a single innerHTML assignment. After this,
+   levels only toggle classes.
+   ========================================================================== */
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderScript() {
+  var html = [];
+  state.tokens.forEach(function (t) {
+    if (t.type === 'word') {
+      var word = '<span class="w" data-i="' + t.index + '">' + escapeHtml(t.core) + '</span>';
+      // Only words carrying punctuation need the extra nowrap wrapper, so most
+      // words stay a single element.
+      if (t.lead || t.trail) {
+        html.push('<span class="tok">' + escapeHtml(t.lead) + word + escapeHtml(t.trail) + '</span>');
+      } else {
+        html.push(word);
+      }
+    } else {
+      html.push(escapeHtml(t.raw));
+    }
+  });
+  el.script.innerHTML = html.join('');
+  wordEls = Array.prototype.slice.call(el.script.querySelectorAll('.w'));
+  freshEls = [];
+}
+
+/** Sets the screen-reader treatment of one word. */
+function setWordA11y(node, isHidden) {
+  if (isHidden) {
+    node.setAttribute('role', 'button');
+    node.setAttribute('tabindex', '0');
+    // aria-label wins over the text inside, so the word is not read out
+    node.setAttribute('aria-label', HIDDEN_LABEL);
+  } else {
+    node.removeAttribute('role');
+    node.removeAttribute('tabindex');
+    node.removeAttribute('aria-label');
+  }
+}
+
+/** Paints every word from scratch, without animating. Used when restoring. */
+function syncAllWords() {
+  for (var i = 0; i < wordEls.length; i++) {
+    var node = wordEls[i];
+    var isHidden = state.hidden.has(i);
+    node.classList.toggle('hidden', isHidden);
+    node.classList.remove('fresh', 'revealing');
+    node.style.transitionDelay = '';
+    setWordA11y(node, isHidden);
+  }
+}
+
+function clearFresh() {
+  if (freshTimer) { clearTimeout(freshTimer); freshTimer = 0; }
+  freshEls.forEach(function (node) { node.classList.remove('fresh'); });
+  freshEls = [];
+}
+
+/* ==========================================================================
+   5. CHANGING THE HIDDEN SET
+   Every level change goes through applyHiddenSet. It compares what is
+   *visually* hidden right now (in the hidden set and not peeked at) with the
+   target, and touches only the words that actually change.
+   ========================================================================== */
+
+function applyHiddenSet(targetArray, freshArray) {
+  var target = new Set(targetArray);
+  var fresh = new Set(freshArray || []);
+
+  // Which words change appearance? Only those need DOM work.
+  var touched = new Set(target);
+  state.hidden.forEach(function (i) { touched.add(i); });
+
+  var changed = [];
+  touched.forEach(function (i) {
+    var wasHidden = state.hidden.has(i) && !state.revealed.has(i);
+    var willHide = target.has(i);
+    if (wasHidden !== willHide) changed.push(i);
+  });
+  changed.sort(function (a, b) { return a - b; });   // ripple in reading order
+
+  state.hidden = target;
+  state.revealed.clear();
+
+  clearFresh();
+  if (delayTimer) { clearTimeout(delayTimer); delayTimer = 0; }
+
+  var spread = reducedMotion() ? 0 : MAX_STAGGER;
+  var span = Math.max(1, changed.length - 1);
+
+  changed.forEach(function (i, order) {
+    var node = wordEls[i];
+    if (!node) return;
+    node.style.transitionDelay = Math.round(order / span * spread) + 'ms';
+    node.classList.remove('revealing');
+
+    if (target.has(i)) {
+      node.classList.add('hidden');
+      if (fresh.has(i)) { node.classList.add('fresh'); freshEls.push(node); }
+    } else {
+      node.classList.remove('hidden', 'fresh');
+    }
+    setWordA11y(node, target.has(i));
+  });
+
+  // Drop the delays once the ripple is over, so a later single click is instant.
+  delayTimer = setTimeout(function () {
+    changed.forEach(function (i) {
+      if (wordEls[i]) wordEls[i].style.transitionDelay = '';
+    });
+    delayTimer = 0;
+  }, spread + 400);
+
+  if (freshEls.length) freshTimer = setTimeout(clearFresh, spread + 1200);
+}
+
+/* ==========================================================================
+   6. THE THREE ACTIONS
+   ========================================================================== */
+
+/** How many NEW words this level should hide. */
+function wordsPerLevel() {
+  if (state.hideMode === 'count') {
+    // a fixed number of words, handy when the text is short
+    return Math.max(1, Math.round(state.count));
+  }
+  // a share of the ORIGINAL total, never less than one word
+  return Math.max(1, Math.round(state.wordCount * state.percent / 100));
+}
+
+function startSession() {
+  var text = el.editor.value;
+  var parsed = tokenize(text);
+  if (parsed.wordCount === 0) return;
+
+  state.text = text;
+  state.tokens = parsed.tokens;
+  state.wordCount = parsed.wordCount;
+  state.hidden = new Set();
+  state.revealed = new Set();
+  state.history = [[]];
+  state.level = 0;
+  state.mode = 'practice';
+
+  renderScript();
+  syncAllWords();
+  setMode();
+  updateLevelUI(0);
+  save();
+}
+
+function nextLevel() {
+  var N = state.wordCount;
+  if (state.mode !== 'practice' || N === 0) return;
+
+  // 1. candidates are the words outside the hidden set; peeked-at words are
+  //    already in it, so they are never picked twice.
+  var candidates = [];
+  for (var i = 0; i < N; i++) {
+    if (!state.hidden.has(i)) candidates.push(i);
+  }
+  if (candidates.length === 0) return;
+
+  // 2. how many new words to hide, capped by what is left
+  var k = Math.min(wordsPerLevel(), candidates.length);
+
+  // 3. partial Fisher-Yates: shuffle only the k slots we need
+  for (var j = 0; j < k; j++) {
+    var r = j + Math.floor(Math.random() * (candidates.length - j));
+    var tmp = candidates[j]; candidates[j] = candidates[r]; candidates[r] = tmp;
+  }
+  var picked = candidates.slice(0, k);
+
+  // 4. the hidden set is cumulative, and each level is pushed onto the history
+  var nextHidden = Array.from(state.hidden).concat(picked);
+  state.history.push(nextHidden.slice());
+  state.level = state.history.length - 1;
+
+  // 5. peeked words are re-hidden by applyHiddenSet, which clears `revealed`
+  applyHiddenSet(nextHidden, picked);
+  updateLevelUI(1);
+  save();
+}
+
+function previousLevel() {
+  if (state.mode !== 'practice' || state.level === 0) return;
+
+  // Drop the level we are leaving; the one below is the exact set to restore.
+  // The random pick we just undid is gone for good, so going forward again
+  // draws a fresh selection.
+  state.history.pop();
+  state.level = state.history.length - 1;
+
+  applyHiddenSet(state.history[state.level], null);
+  updateLevelUI(-1);
+  save();
+}
+
+function revealWord(i) {
+  if (state.mode !== 'practice') return;
+  if (!state.hidden.has(i) || state.revealed.has(i)) return;
+
+  state.revealed.add(i);                  // stays out until the next level
+  var node = wordEls[i];
+  if (node) {
+    node.style.transitionDelay = '';      // in case the ripple is still running
+    node.classList.remove('hidden', 'fresh');
+    setWordA11y(node, false);
+    if (!reducedMotion()) {
+      // No reflow needed to restart this: a word can only be revealed once
+      // per level, so .revealing is never already on the element.
+      node.classList.add('revealing');
+      setTimeout(function () { node.classList.remove('revealing'); }, 380);
+    }
+  }
+  // The counter tracks the hidden set, which has not changed, so only the
+  // note in the level panel is refreshed.
+  updateNote();
+}
+
+function backToEdit() {
+  state.mode = 'edit';
+  state.revealed.clear();
+  el.editor.value = state.text || el.editor.value;   // the text is kept
+  el.script.innerHTML = '';
+  wordEls = [];
+  freshEls = [];
+  setMode();
+  updateLevelUI(0);
+  save();
+}
+
+/* ==========================================================================
+   7. RENDERING THE CHROME
+   ========================================================================== */
+
+function setMode() {
+  var practice = state.mode === 'practice';
+  el.editor.hidden = practice;
+  el.script.hidden = !practice;
+  el.sheetHint.hidden = !practice;
+  el.rowEdit.hidden = practice;
+  el.rowPractice.hidden = !practice;
+  el.railHint.hidden = !practice;
+  el.levelHead.hidden = !practice;
+  el.levelCounts.hidden = !practice;
+  el.levelIdle.hidden = practice;
+  closeConfirm();
+  if (!practice) el.editor.focus();
+}
+
+/** direction: 1 up, -1 down, 0 no animation. */
+function updateLevelUI(direction) {
+  var N = state.wordCount;
+  var hiddenCount = state.hidden.size;
+  var pct = N ? Math.round(hiddenCount / N * 100) : 0;
+
+  if (state.mode === 'practice') {
+    if (el.levelNum.textContent !== String(state.level)) {
+      el.levelNum.textContent = state.level;
+      // The numeral slides in from the direction you moved. Driven by the Web
+      // Animations API rather than a CSS class, because restarting a CSS
+      // animation needs a forced reflow.
+      if (direction && !reducedMotion() && el.levelNum.animate) {
+        el.levelNum.animate(
+          [{ transform: 'translateY(' + (direction > 0 ? '0.28em' : '-0.28em') + ')', opacity: 0 },
+           { transform: 'translateY(0)', opacity: 1 }],
+          { duration: 280, easing: 'cubic-bezier(.2,.8,.3,1)' }
+        );
+      }
+    }
+    el.levelCounts.innerHTML = '<b>' + hiddenCount + '</b> of ' + N + ' words hidden, ' + pct + '%';
+    el.progressFill.style.width = pct + '%';
+    el.nextBtn.disabled = hiddenCount >= N;
+    el.prevBtn.disabled = state.level === 0;
+  } else {
+    el.progressFill.style.width = '0%';
+    el.startBtn.disabled = countWords(el.editor.value) === 0;
+  }
+
+  updateNote();
+  updateAmountReadout();
+}
+
+function updateNote() {
+  var note = el.stripNote;
+  if (state.mode === 'practice') {
+    if (state.hidden.size >= state.wordCount && state.wordCount > 0) {
+      note.textContent = "Everything is hidden. You've reached the final level.";
+      note.classList.add('is-final');
+      return;
+    }
+    note.classList.remove('is-final');
+    var r = state.revealed.size;
+    note.textContent = r === 0 ? ''
+      : r + (r === 1 ? ' word revealed' : ' words revealed') + ' at this level';
+  } else {
+    note.classList.remove('is-final');
+    var n = countWords(el.editor.value);
+    note.textContent = n === 0
+      ? 'Paste or type your text, then press Start.'
+      : n + (n === 1 ? ' word' : ' words') + ' ready';
+  }
+}
+
+/** Keeps the two "how much to hide" fields and their readouts in sync. */
+function updateAmountReadout() {
+  var N = state.mode === 'practice' ? state.wordCount : countWords(el.editor.value);
+  var byPercent = state.hideMode === 'percent';
+
+  el.modePercent.setAttribute('aria-pressed', String(byPercent));
+  el.modeCount.setAttribute('aria-pressed', String(!byPercent));
+  el.percentField.hidden = !byPercent;
+  el.countField.hidden = byPercent;
+
+  var p = state.percent;
+  var fromPercent = N ? Math.max(1, Math.round(N * p / 100)) : 0;
+  el.percentRead.innerHTML = '<b>' + p + '%</b>' +
+    (fromPercent ? ' of the text, about ' + fromPercent + (fromPercent === 1 ? ' word' : ' words') : '');
+  // Fill the webkit track up to the thumb.
+  el.percent.style.setProperty('--fill', ((p - 1) / 49 * 100).toFixed(1) + '%');
+
+  var c = Math.max(1, Math.round(state.count));
+  var levels = N ? Math.ceil(N / c) : 0;
+  el.countRead.innerHTML = '<b>' + c + (c === 1 ? ' word' : ' words') + '</b>' +
+    (levels ? ' each level, ' + levels + (levels === 1 ? ' level' : ' levels') + ' in all' : '');
+  el.countDown.disabled = c <= 1;
+}
+
+/* ==========================================================================
+   8. PERSISTENCE
+   localStorage can throw (private mode, storage turned off), so every access
+   is wrapped and failure is simply ignored: the app keeps working, it just
+   will not remember.
+   ========================================================================== */
+
+function save() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      text: state.mode === 'practice' ? state.text : el.editor.value,
+      hideMode: state.hideMode,
+      percent: state.percent,
+      count: state.count,
+      mode: state.mode,
+      history: state.history
+    }));
+  } catch (e) { /* storage unavailable: carry on without it */ }
+}
+
+function saveSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(save, 400);
+}
+
+function restore() {
+  var saved = null;
+  try {
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) saved = JSON.parse(raw);
+  } catch (e) { saved = null; }
+  if (!saved) return;
+
+  if (typeof saved.text === 'string') el.editor.value = saved.text;
+
+  if (saved.hideMode === 'count' || saved.hideMode === 'percent') state.hideMode = saved.hideMode;
+  if (typeof saved.percent === 'number') {
+    state.percent = Math.min(50, Math.max(1, Math.round(saved.percent)));
+  }
+  if (typeof saved.count === 'number') {
+    state.count = Math.max(1, Math.round(saved.count));
+  }
+
+  // Rebuild a practice session only if the saved data is coherent.
+  if (saved.mode !== 'practice' || !saved.text || !Array.isArray(saved.history) || !saved.history.length) return;
+
+  var parsed = tokenize(saved.text);
+  if (parsed.wordCount === 0) return;
+
+  state.text = saved.text;
+  state.tokens = parsed.tokens;
+  state.wordCount = parsed.wordCount;
+
+  // Drop anything that is not a valid word index for this text.
+  state.history = saved.history.map(function (snapshot) {
+    if (!Array.isArray(snapshot)) return [];
+    return snapshot.filter(function (i) {
+      return Number.isInteger(i) && i >= 0 && i < parsed.wordCount;
+    });
+  });
+  if (!state.history.length) state.history = [[]];
+
+  state.level = state.history.length - 1;
+  state.hidden = new Set(state.history[state.level]);
+  state.revealed = new Set();
+  state.mode = 'practice';
+
+  renderScript();
+  syncAllWords();
+}
+
+/* ==========================================================================
+   9. EVENTS
+   ========================================================================== */
+
+el.editor.addEventListener('input', function () {
+  updateLevelUI(0);
+  saveSoon();
+});
+
+el.startBtn.addEventListener('click', startSession);
+el.nextBtn.addEventListener('click', nextLevel);
+el.prevBtn.addEventListener('click', previousLevel);
+
+el.clearBtn.addEventListener('click', function () {
+  el.editor.value = '';
+  el.editor.focus();
+  updateLevelUI(0);
+  save();
+});
+
+/* --- how much to hide: a share of the text, or a fixed number of words --- */
+
+function setHideMode(mode) {
+  state.hideMode = mode;
+  updateAmountReadout();
+  save();
+}
+el.modePercent.addEventListener('click', function () { setHideMode('percent'); });
+el.modeCount.addEventListener('click', function () { setHideMode('count'); });
+
+el.percent.addEventListener('input', function () {
+  state.percent = Number(el.percent.value);
+  updateAmountReadout();
+  saveSoon();            // only affects future Next level clicks
+});
+
+function setCount(n) {
+  state.count = Math.max(1, Math.round(n || 1));
+  el.count.value = state.count;
+  updateAmountReadout();
+  saveSoon();
+}
+el.count.addEventListener('input', function () {
+  // The field may be empty or mid-edit while typing; only take it when valid,
+  // and clamp properly on blur.
+  var n = parseInt(el.count.value, 10);
+  if (!isNaN(n) && n >= 1) {
+    state.count = n;
+    updateAmountReadout();
+    saveSoon();
+  }
+});
+el.count.addEventListener('blur', function () { setCount(parseInt(el.count.value, 10)); });
+el.countUp.addEventListener('click', function () { setCount(state.count + 1); });
+el.countDown.addEventListener('click', function () { setCount(state.count - 1); });
+
+/* --- the inline confirmation for leaving practice mode ----------------- */
+
+function openConfirm() {
+  el.confirm.hidden = false;
+  el.editBtn.setAttribute('aria-expanded', 'true');
+  el.confirmNo.focus();
+}
+function closeConfirm() {
+  if (el.confirm.hidden) return;
+  el.confirm.hidden = true;
+  el.editBtn.setAttribute('aria-expanded', 'false');
+}
+el.editBtn.addEventListener('click', function () {
+  if (el.confirm.hidden) openConfirm(); else closeConfirm();
+});
+el.confirmNo.addEventListener('click', function () {
+  closeConfirm();
+  el.editBtn.focus();
+});
+el.confirmYes.addEventListener('click', function () {
+  closeConfirm();
+  backToEdit();
+});
+
+/* --- clicking and keyboarding the hidden words ------------------------- */
+
+el.script.addEventListener('click', function (e) {
+  var node = e.target.closest('.w');
+  if (node && node.classList.contains('hidden')) revealWord(Number(node.dataset.i));
+});
+
+el.script.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  var node = e.target.closest('.w');
+  if (!node || !node.classList.contains('hidden')) return;
+  e.preventDefault();
+  revealWord(Number(node.dataset.i));
+});
+
+/* --- global shortcuts -------------------------------------------------- */
+
+document.addEventListener('keydown', function (e) {
+  if (state.mode !== 'practice') return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+  if (e.key === 'Escape') { closeConfirm(); return; }
+
+  // Never steal the arrow keys from a text field, the slider or the stepper.
+  var tag = e.target && e.target.tagName;
+  if (tag === 'TEXTAREA' || tag === 'INPUT' || (e.target && e.target.isContentEditable)) return;
+
+  if (e.key === 'ArrowRight') {
+    if (!el.nextBtn.disabled) { e.preventDefault(); nextLevel(); }
+  } else if (e.key === 'ArrowLeft') {
+    if (!el.prevBtn.disabled) { e.preventDefault(); previousLevel(); }
+  }
+});
+
+window.addEventListener('beforeunload', save);
+
+/* ==========================================================================
+   10. GO
+   ========================================================================== */
+
+restore();
+
+// Browsers restore form control values across a reload, which would leave the
+// slider and the number box showing something the state never agreed to. The
+// state is the single source of truth, so push it into the controls every
+// time, whether or not anything was restored from storage.
+el.percent.value = state.percent;
+el.count.value = state.count;
+
+setMode();
+updateLevelUI(0);
+
+})();
+</script>
+</body>
+</html>
